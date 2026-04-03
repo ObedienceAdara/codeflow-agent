@@ -134,28 +134,30 @@ class CodeFlowOrchestrator:
         """
         logger.info(f"Analyzing project at: {self.config.project_root}")
 
-        # This would integrate with code parsers (tree-sitter, etc.)
-        # For now, return basic file statistics
-        import os
-
+        # Import ProjectMetrics from models
+        from ..models.entities import ProjectMetrics
+        
         stats = {
             "total_files": 0,
             "total_lines": 0,
             "languages": {},
             "files_by_type": {},
+            "dependencies": {},
         }
 
-        for root, dirs, files in os.walk(self.config.project_root):
+        project_root = Path(self.config.project_root)
+        
+        for root, dirs, files in os.walk(project_root):
             # Skip hidden directories and common non-code directories
             dirs[:] = [
                 d
                 for d in dirs
-                if not d.startswith(".") and d not in ("node_modules", "__pycache__", "venv")
+                if not d.startswith(".") and d not in ("node_modules", "__pycache__", "venv", ".venv", "dist", "build")
             ]
 
             for file in files:
                 file_path = Path(root) / file
-                rel_path = file_path.relative_to(self.config.project_root)
+                rel_path = file_path.relative_to(project_root)
                 ext = file_path.suffix.lower()
 
                 stats["total_files"] += 1
@@ -171,18 +173,60 @@ class CodeFlowOrchestrator:
                         stats["total_lines"] += lines
                 except Exception:
                     pass
+                
+                # Detect dependencies from requirements files
+                if file in ("requirements.txt", "setup.py", "pyproject.toml", "package.json"):
+                    try:
+                        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                            content = f.read()
+                            deps = self._parse_dependencies(content, file)
+                            stats["dependencies"].update(deps)
+                    except Exception:
+                        pass
 
-        self.state.metrics = {
-            "total_files": stats["total_files"],
-            "total_lines": stats["total_lines"],
-            "languages": stats["languages"],
-            "last_analyzed": datetime.utcnow(),
-        }
+        # Create proper ProjectMetrics instance
+        self.state.metrics = ProjectMetrics(
+            total_files=stats["total_files"],
+            total_lines=stats["total_lines"],
+            languages=stats["languages"],
+            dependencies=stats["dependencies"],
+            last_analyzed=datetime.utcnow(),
+        )
 
         logger.info(
             f"Analysis complete: {stats['total_files']} files, {stats['total_lines']} lines"
         )
         return stats
+    
+    def _parse_dependencies(self, content: str, filename: str) -> dict[str, str]:
+        """Parse dependencies from various dependency files."""
+        deps = {}
+        
+        if filename == "requirements.txt":
+            for line in content.split("\n"):
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    if "==" in line:
+                        pkg, version = line.split("==", 1)
+                        deps[pkg.strip()] = version.strip()
+                    elif ">=" in line:
+                        pkg, version = line.split(">=", 1)
+                        deps[pkg.strip()] = f">={version.strip()}"
+                    else:
+                        deps[line] = "*"
+        
+        elif filename == "package.json":
+            import json
+            try:
+                data = json.loads(content)
+                for dep, version in data.get("dependencies", {}).items():
+                    deps[dep] = version
+                for dep, version in data.get("devDependencies", {}).items():
+                    deps[dep] = version
+            except json.JSONDecodeError:
+                pass
+        
+        return deps
 
     async def execute_requirement(self, requirement: str) -> WorkflowState:
         """
