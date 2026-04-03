@@ -145,6 +145,7 @@ git:
 
 ## 📚 Documentation
 
+- **[Complete Usage Guide](codeflow/docs/USAGE.md)** - Comprehensive CLI reference, workflows, and troubleshooting
 - [Getting Started Guide](docs/getting-started.md)
 - [Agent Configuration](docs/agents.md)
 - [Tool Integration](docs/tools.md)
