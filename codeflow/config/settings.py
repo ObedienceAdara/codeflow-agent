@@ -17,8 +17,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class LLMConfig(BaseSettings):
     """LLM provider configuration."""
 
-    provider: str = Field(default="anthropic", description="LLM provider: anthropic, openai, google, ollama")
-    model: str = Field(default="claude-sonnet-4-5-20250929", description="Model name to use")
+    provider: str = Field(default="groq", description="LLM provider: groq, anthropic, openai, google, ollama")
+    model: str = Field(default="llama-3.1-70b-versatile", description="Model name to use")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="Sampling temperature")
     max_tokens: int = Field(default=4096, gt=0, description="Maximum tokens per call")
     api_key: Optional[str] = Field(default=None, description="API key (loaded from env)")
@@ -27,7 +27,7 @@ class LLMConfig(BaseSettings):
     @field_validator("provider")
     @classmethod
     def validate_provider(cls, v: str) -> str:
-        valid_providers = {"anthropic", "openai", "google", "ollama"}
+        valid_providers = {"groq", "anthropic", "openai", "google", "ollama"}
         if v.lower() not in valid_providers:
             raise ValueError(f"Provider must be one of: {valid_providers}")
         return v.lower()
