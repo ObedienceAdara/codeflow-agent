@@ -232,6 +232,14 @@ class ProjectMetrics(BaseModel):
         json_encoders = {datetime: lambda v: v.isoformat()}
 
 
+class DependencyInfo(BaseModel):
+    """Information about a project dependency."""
+    
+    name: str
+    version: str
+    type: str = "runtime"  # runtime, dev, optional
+
+
 class WorkflowState(BaseModel):
     """Overall state of a CodeFlow workflow execution."""
 

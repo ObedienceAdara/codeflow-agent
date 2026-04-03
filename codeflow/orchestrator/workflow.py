@@ -7,6 +7,7 @@ managing task distribution, state, and inter-agent communication.
 
 import asyncio
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -25,6 +26,8 @@ from ..models.entities import (
     TaskStatus,
     WorkflowState,
 )
+from .consensus_loop import ConsensusLoop, LoopConfig
+from .debate_context import DebateContextManager
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +56,10 @@ class CodeFlowOrchestrator:
         self.agents: dict[AgentType, Any] = {}
         self._llm: Optional[Any] = None
         self._initialized = False
+        
+        # Initialize consensus loop components
+        self.debate_context_manager = DebateContextManager()
+        self.consensus_loop = ConsensusLoop(self.debate_context_manager)
 
         logger.info("CodeFlow Orchestrator initialized")
 
@@ -105,6 +112,10 @@ class CodeFlowOrchestrator:
 
     async def _initialize_agents(self) -> None:
         """Initialize all enabled agents."""
+        # Import additional agents for consensus loop
+        from ..agents.reviewer import ReviewerAgent
+        from ..agents.qa import QAAgent
+        
         # Planner Agent
         self.agents[AgentType.PLANNER] = PlannerAgent(
             config=self.config,
@@ -120,6 +131,22 @@ class CodeFlowOrchestrator:
         developer.set_project_root(self.config.project_root)
         self.agents[AgentType.DEVELOPER] = developer
         logger.info("Initialized Developer Agent")
+        
+        # Reviewer Agent (for consensus loop validation)
+        reviewer = ReviewerAgent(
+            config=self.config,
+            llm=self._llm,
+        )
+        self.agents[AgentType.REVIEWER] = reviewer
+        logger.info("Initialized Reviewer Agent")
+        
+        # QA Agent (for consensus loop validation)
+        qa = QAAgent(
+            config=self.config,
+            llm=self._llm,
+        )
+        self.agents[AgentType.QA] = qa
+        logger.info("Initialized QA Agent")
 
         # Store agent states in workflow state
         for agent_type, agent in self.agents.items():
@@ -287,14 +314,61 @@ class CodeFlowOrchestrator:
                 completed_ids.add(next_task.id)
                 continue
 
-            # Execute task
+            # Execute task with optional consensus loop for critical tasks
             logger.info(
                 f"Executing task '{next_task.title}' with {agent_type.value} agent"
             )
 
             try:
-                # Run the full task processing pipeline
-                updated_task = await agent.process_task(next_task)
+                # For critical tasks, use consensus loop with validators
+                use_consensus = next_task.context.get("use_consensus_loop", False)
+                
+                if use_consensus and agent_type == AgentType.DEVELOPER:
+                    # Execute with consensus loop (Developer + Reviewer + QA)
+                    validator_agents = [
+                        self.agents.get(AgentType.REVIEWER),
+                        self.agents.get(AgentType.QA)
+                    ]
+                    validator_agents = [v for v in validator_agents if v is not None]
+                    
+                    if validator_agents:
+                        logger.info(
+                            f"Using consensus loop for task '{next_task.title}' "
+                            f"with {len(validator_agents)} validators"
+                        )
+                        
+                        loop_config = LoopConfig(
+                            max_iterations=3,
+                            min_approvals_required=1,
+                            require_unanimous_approval=False
+                        )
+                        
+                        result = self.consensus_loop.execute_loop(
+                            task_id=str(next_task.id),
+                            primary_agent=agent,
+                            validator_agents=validator_agents,
+                            initial_input=next_task,
+                            config=loop_config,
+                            topic=f"Review: {next_task.title}"
+                        )
+                        
+                        if result["success"]:
+                            updated_task = result.get("artifact", next_task)
+                            if not isinstance(updated_task, Task):
+                                # If artifact is not a Task, keep original but mark complete
+                                updated_task = next_task
+                                updated_task.status = TaskStatus.COMPLETED
+                        else:
+                            updated_task = next_task
+                            updated_task.status = TaskStatus.FAILED
+                            updated_task.error = result.get("error", "Consensus loop failed")
+                    else:
+                        # No validators available, fall back to normal execution
+                        updated_task = await agent.process_task(next_task)
+                else:
+                    # Normal execution without consensus loop
+                    updated_task = await agent.process_task(next_task)
+                
                 self.state.tasks[updated_task.id] = updated_task
 
                 if updated_task.status == TaskStatus.COMPLETED:
