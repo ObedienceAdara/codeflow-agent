@@ -12,6 +12,7 @@ from typing import Any, Callable, Optional
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from ..config.settings import CodeFlowConfig
+from ..core.diff_protocol import DiffProtocol
 from ..models.entities import (
     AgentType,
     CodeChange,
@@ -68,6 +69,7 @@ Always think through your changes before implementing them."""
         all_tools = (tools or []) + developer_tools
         super().__init__(config, llm, all_tools)
         self.project_root: Optional[Path] = None
+        self.diff_protocol = DiffProtocol()
 
     def set_project_root(self, path: Path) -> None:
         """Set the project root directory for file operations."""
@@ -250,31 +252,22 @@ Return ONLY the new file content, no explanations or markdown formatting."""
         response = await self.llm.ainvoke(messages)
         new_content = response.content.strip()
 
-        # Generate diff (simplified)
-        diff_lines = []
-        old_lines = current_content.splitlines() if current_content else []
-        new_lines = new_content.splitlines()
+        # Generate unified diff via DiffProtocol (token-efficient)
+        diff_result = self.diff_protocol.generate_diff(
+            original_text=current_content,
+            modified_text=new_content,
+            filename=file_path,
+        )
 
-        diff_lines.append(f"--- a/{file_path}")
-        diff_lines.append(f"+++ b/{file_path}")
-
-        # Simple line-by-line comparison
-        max_len = max(len(old_lines), len(new_lines))
-        for i in range(max_len):
-            old_line = old_lines[i] if i < len(old_lines) else ""
-            new_line = new_lines[i] if i < len(new_lines) else ""
-            if old_line != new_line:
-                if old_line:
-                    diff_lines.append(f"-{old_line}")
-                if new_line:
-                    diff_lines.append(f"+{new_line}")
+        if not diff_result.success:
+            logger.warning(f"Diff generation failed for {file_path}: {diff_result.error}")
 
         return CodeChange(
             file_path=file_path,
             old_content=current_content,
             new_content=new_content,
             change_type="modify" if current_content else "create",
-            diff="\n".join(diff_lines),
+            diff=diff_result.diff_text,
             description=description,
         )
 

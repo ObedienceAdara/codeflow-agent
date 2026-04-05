@@ -84,7 +84,9 @@ Always provide clear, actionable task descriptions with sufficient context."""
         logger.info(f"Creating plan for requirement: {requirement[:100]}...")
 
         # Build planning prompt
-        prompt = f"""Analyze this requirement and create a detailed execution plan:
+        prompt = f"""Analyze this requirement and create a detailed execution plan.
+
+IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, no code blocks.
 
 REQUIREMENT:
 {requirement}
@@ -92,7 +94,7 @@ REQUIREMENT:
 CONTEXT:
 {json.dumps(context or {}, default=str)}
 
-Create a structured plan with the following information in JSON format:
+Return ONLY this JSON structure (no other text):
 {{
     "summary": "Brief summary of what needs to be done",
     "tasks": [
@@ -100,22 +102,15 @@ Create a structured plan with the following information in JSON format:
             "id": "task-1",
             "title": "Clear, concise title",
             "description": "Detailed description of what to do",
-            "agent_type": "architect|developer|qa|devops|reviewer|refactor",
-            "priority": "low|medium|high|critical",
-            "dependencies": ["task-0"] // IDs of tasks this depends on
+            "agent_type": "developer",
+            "priority": "medium",
+            "dependencies": []
         }}
     ],
     "estimated_iterations": 5,
-    "risks": ["Potential risk 1", "Potential risk 2"],
-    "success_criteria": ["Criterion 1", "Criterion 2"]
+    "risks": ["Potential risk 1"],
+    "success_criteria": ["Criterion 1"]
 }}
-
-Consider:
-- Break down complex tasks into smaller, manageable pieces
-- Identify all dependencies between tasks
-- Assign the right agent type to each task
-- Include testing and validation tasks
-- Consider security and performance implications
 """
 
         messages = [
@@ -129,7 +124,14 @@ Consider:
         # Parse the plan
         try:
             if isinstance(response.content, str):
-                plan_data = json.loads(response.content)
+                raw = response.content.strip()
+                # Strip markdown code fences
+                if raw.startswith("```"):
+                    raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+                    if raw.endswith("```"):
+                        raw = raw[:-3]
+                    raw = raw.strip()
+                plan_data = json.loads(raw)
             else:
                 plan_data = response.content
         except json.JSONDecodeError as e:

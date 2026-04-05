@@ -10,7 +10,7 @@ import json
 import logging
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -64,34 +64,90 @@ class BaseAgent(ABC):
 
     def get_tools_schema(self) -> list[dict[str, Any]]:
         """Get the schema for all registered tools."""
+        import inspect
+
+        # Mapping from Python types to valid JSON Schema types
+        JSON_TYPE_MAP = {
+            "str": "string",
+            "string": "string",
+            "int": "integer",
+            "integer": "integer",
+            "float": "number",
+            "number": "number",
+            "bool": "boolean",
+            "boolean": "boolean",
+            "list": "array",
+            "dict": "object",
+            "object": "object",
+            "NoneType": "null",
+            "None": "null",
+            "Path": "string",
+            "Bytes": "string",
+            "bytearray": "string",
+            "datetime": "string",
+            "date": "string",
+        }
+
         schemas = []
         for name, tool in self._tool_registry.items():
             schema = {
                 "name": name,
-                "description": getattr(tool, "__doc__", "No description available"),
+                "description": (getattr(tool, "__doc__", "No description available") or "").strip().split("\n")[0],
             }
-            # Extract parameter info if available
-            import inspect
 
             sig = inspect.signature(tool)
-            parameters = {
-                "type": "object",
-                "properties": {},
-                "required": [],
-            }
+            properties = {}
+            required = []
+
             for param_name, param in sig.parameters.items():
                 if param_name == "self":
                     continue
-                param_type = "string"
-                if param.annotation != inspect.Parameter.empty:
-                    param_type = getattr(param.annotation, "__name__", "string")
-                parameters["properties"][param_name] = {
-                    "type": param_type,
-                    "description": f"Parameter {param_name}",
-                }
+
+                # Determine JSON type
+                raw_type = getattr(param.annotation, "__name__", None)
+                origin = getattr(param.annotation, "__origin__", None)
+
+                if origin is not None:
+                    # Handle Optional[X] -> use X's type
+                    if origin is Union:
+                        args = getattr(param.annotation, "__args__", [])
+                        non_none = [a for a in args if a is not type(None)]
+                        if non_none:
+                            raw_type = getattr(non_none[0], "__name__", "string")
+                        else:
+                            raw_type = "string"
+                    elif origin is list or origin is List:
+                        raw_type = "array"
+                    elif origin is dict or origin is Dict:
+                        raw_type = "object"
+                    else:
+                        raw_type = "string"
+                elif raw_type is not None:
+                    pass  # Use as-is, mapped below
+                else:
+                    raw_type = "string"
+
+                json_type = JSON_TYPE_MAP.get(raw_type, "string")
+
+                prop_def: dict[str, Any] = {"type": json_type}
+
+                # Add description from docstring if available
+                prop_def["description"] = f"Parameter {param_name}"
+
+                # Handle array items
+                if json_type == "array":
+                    prop_def["items"] = {"type": "string"}
+
+                properties[param_name] = prop_def
+
                 if param.default == inspect.Parameter.empty:
-                    parameters["required"].append(param_name)
-            schema["parameters"] = parameters
+                    required.append(param_name)
+
+            schema["parameters"] = {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            }
             schemas.append(schema)
         return schemas
 
@@ -147,12 +203,16 @@ Description: {task.description}
 
 Available tools: {list(self._tool_registry.keys())}
 
-Respond with JSON containing:
-- "action": The action to take (use_tool, complete_task, request_help)
-- "tool_name": Name of tool to use (if action is use_tool)
-- "tool_args": Arguments for the tool (if action is use_tool)
-- "reasoning": Your reasoning for the chosen action
-- "result": Final result (if action is complete_task)
+IMPORTANT: Respond with ONLY valid JSON. No markdown, no code blocks, no explanations.
+
+Your JSON response must have this structure:
+{{
+    "action": "use_tool" or "complete_task" or "request_help",
+    "tool_name": "tool name here (only if action is use_tool)",
+    "tool_args": {{"arg": "value"}},
+    "reasoning": "brief explanation of your choice",
+    "result": "final output (only if action is complete_task)"
+}}
 """
         messages.append(SystemMessage(content=system_content))
 
@@ -233,7 +293,16 @@ Respond with JSON containing:
         # Parse response content
         try:
             if isinstance(response.content, str):
-                return json.loads(response.content)
+                raw = response.content.strip()
+                # Strip markdown code fences
+                if raw.startswith("```"):
+                    lines = raw.split("\n")
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    raw = "\n".join(lines).strip()
+                return json.loads(raw)
             return response.content
         except json.JSONDecodeError:
             # If parsing fails, create a default response

@@ -237,21 +237,52 @@ Always consider:
     ) -> dict[str, Any]:
         """
         Run tests and collect results.
-        
+
+        If Docker sandbox is configured, tests run in isolated container.
+        Otherwise falls back to local subprocess execution.
+
         Args:
             test_path: Path to tests or test file
             test_framework: Testing framework to use
             options: Additional test runner options
-            
+
         Returns:
             Test execution results
         """
         import subprocess
-        
+
         test_path_obj = Path(test_path)
         if not test_path_obj.exists():
             return {"error": f"Test path not found: {test_path}"}
-        
+
+        # Check if sandbox is available
+        sandbox = self._get_sandbox()
+        if sandbox is not None and sandbox.is_available():
+            import asyncio
+            try:
+                loop = asyncio.new_event_loop()
+                result = loop.run_until_complete(
+                    sandbox.execute_tests(
+                        test_path=str(test_path_obj),
+                        project_root=str(self.config.project_root),
+                        framework=test_framework,
+                    )
+                )
+                loop.close()
+                return {
+                    "success": result.success,
+                    "stdout": result.stdout,
+                    "stderr": result.stderr,
+                    "exit_code": result.exit_code,
+                    "tests_passed": result.success,
+                    "execution_time_ms": result.execution_time_ms,
+                    "sandbox": True,
+                    "container_id": result.container_id,
+                }
+            except Exception as e:
+                # Fall back to local if sandbox fails
+                logger.warning(f"Sandbox execution failed, falling back: {e}")
+
         # Build command based on framework
         if test_framework == "pytest":
             cmd = ["python", "-m", "pytest", str(test_path_obj), "-v", "--tb=short"]
@@ -259,14 +290,14 @@ Always consider:
             cmd = ["python", "-m", "unittest", "discover", "-s", str(test_path_obj.parent)]
         else:
             return {"error": f"Unsupported framework: {test_framework}"}
-        
+
         # Add options
         if options:
             if options.get("coverage"):
                 cmd.extend(["--cov", options.get("coverage_path", ".")])
             if options.get("parallel"):
                 cmd.extend(["-n", "auto"])
-        
+
         try:
             result = subprocess.run(
                 cmd,
@@ -275,7 +306,7 @@ Always consider:
                 timeout=300,
                 cwd=self.config.project_root,
             )
-            
+
             return {
                 "success": result.returncode == 0,
                 "stdout": result.stdout,
@@ -295,6 +326,30 @@ Always consider:
                 "error": str(e),
                 "tests_passed": False,
             }
+
+    def _get_sandbox(self) -> Optional[Any]:
+        """
+        Get the Docker sandbox executor from the orchestrator if available.
+
+        Returns:
+            DockerSandboxExecutor instance or None
+        """
+        # Try to access sandbox via parent orchestrator reference
+        # This is set by the orchestrator during agent initialization
+        if hasattr(self, "_sandbox"):
+            return self._sandbox
+        return None
+
+    def set_sandbox(self, sandbox: Any) -> None:
+        """
+        Set the Docker sandbox executor.
+
+        Called by the orchestrator during agent initialization.
+
+        Args:
+            sandbox: DockerSandboxExecutor instance
+        """
+        self._sandbox = sandbox
 
     def analyze_coverage(
         self,

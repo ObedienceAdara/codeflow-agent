@@ -4,8 +4,9 @@ Consensus Loop Engine
 Implements iterative feedback loops where agents debate, critique, and refine
 work until validation passes or consensus is reached.
 """
+import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass, field
 
 from ..protocols.critique import (
@@ -16,6 +17,7 @@ from ..protocols.critique import (
 )
 from .debate_context import DebateContextManager
 from ..agents.base import BaseAgent
+from ..models.entities import Task
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +85,7 @@ class ConsensusLoop:
         self.context_manager = context_manager or DebateContextManager()
         self.active_loops: Dict[str, LoopState] = {}
         
-    def execute_loop(
+    async def execute_loop(
         self,
         task_id: str,
         primary_agent: BaseAgent,
@@ -94,7 +96,7 @@ class ConsensusLoop:
     ) -> Dict[str, Any]:
         """
         Execute a consensus loop for a task.
-        
+
         Args:
             task_id: Unique identifier for the task
             primary_agent: Agent producing the artifact
@@ -102,39 +104,39 @@ class ConsensusLoop:
             initial_input: Input for the primary agent
             config: Loop configuration
             topic: Topic for debate context
-            
+
         Returns:
             Dictionary with final artifact, status, and loop metadata
         """
         config = config or LoopConfig()
-        
+
         logger.info(
             f"Starting consensus loop for task {task_id} with "
             f"{len(validator_agents)} validators"
         )
-        
+
         # Initialize loop state
         state = LoopState(task_id=task_id)
         self.active_loops[task_id] = state
-        
+
         # Create debate context
-        participants = [primary_agent.agent_id] + [
-            agent.agent_id for agent in validator_agents
+        participants = [primary_agent.agent_type.value] + [
+            agent.agent_type.value for agent in validator_agents
         ]
-        
+
         try:
             debate_ctx = self.context_manager.create_debate(
                 task_id=task_id,
                 topic=topic,
-                initiator=primary_agent.agent_id,
+                initiator=primary_agent.agent_type.value,
                 participants=participants,
                 max_rounds=config.max_iterations
             )
         except ValueError as e:
             logger.error(f"Failed to create debate context: {e}")
             return self._create_failure_result(state, str(e))
-        
-        # Main loop
+
+        # Main async loop
         while config.should_continue(
             state.iteration,
             len(state.approvals),
@@ -143,88 +145,105 @@ class ConsensusLoop:
         ):
             state.iteration += 1
             logger.info(f"Iteration {state.iteration}/{config.max_iterations}")
-            
+
             # Start new debate round
             round_obj = self.context_manager.start_round(task_id)
             if not round_obj:
                 logger.error("Failed to start debate round")
                 break
-            
+
             # Primary agent produces/updates artifact
             try:
                 if state.iteration == 1:
                     # First iteration: generate initial artifact
-                    result = primary_agent.execute(initial_input)
+                    if isinstance(initial_input, Task):
+                        result = await primary_agent.process_task(initial_input)
+                    else:
+                        result = await primary_agent.execute(initial_input)
                 else:
                     # Subsequent iterations: fix based on critiques
                     latest_critiques = state.critiques[-len(validator_agents):]
                     fix_request = self._format_fix_request(latest_critiques)
-                    result = primary_agent.execute({
-                        "original_input": initial_input,
-                        "previous_artifact": state.artifact,
-                        "critiques": fix_request
-                    })
-                
-                state.artifact = result.get("artifact") if isinstance(result, dict) else result
-                
+                    # Create a new task with critique context for the agent to fix
+                    fix_task = Task(
+                        title="Fix issues from consensus review",
+                        description=fix_request,
+                        context={
+                            "original_input": str(initial_input),
+                            "critiques": fix_request,
+                        },
+                    )
+                    result = await primary_agent.process_task(fix_task)
+
+                state.artifact = result if not isinstance(result, dict) else result.result
+
                 # Record primary agent's response
                 self.context_manager.add_response(
                     task_id,
-                    primary_agent.agent_id,
+                    primary_agent.agent_type.value,
                     f"Produced artifact (iteration {state.iteration})"
                 )
-                
+
             except Exception as e:
                 logger.error(f"Primary agent failed: {e}")
-                state.rejections.append(primary_agent.agent_id)
-                state.responses[primary_agent.agent_id] = f"Error: {e}"
+                state.rejections.append(primary_agent.agent_type.value)
+                state.responses[primary_agent.agent_type.value] = f"Error: {e}"
                 continue
-            
+
             # Validators review
             all_approved = True
             has_blocking = False
-            
+
             for validator in validator_agents:
                 try:
                     # Validate the artifact
-                    validation = validator.validate(state.artifact)
-                    
+                    if isinstance(state.artifact, Task):
+                        validation_result = await validator.validate(state.artifact)
+                    else:
+                        # Create a minimal task for validation context
+                        validation_task = Task(
+                            title="Validate artifact",
+                            description="Validate the produced artifact",
+                            context={"artifact": state.artifact},
+                        )
+                        validation_result = await validator.validate(validation_task)
+
                     # Convert validation to critique report
                     critique = self._create_critique_report(
                         task_id=task_id,
                         reviewer=validator,
                         target=primary_agent,
                         artifact=state.artifact,
-                        validation_result=validation
+                        validation_result=validation_result,
                     )
-                    
+
                     state.critiques.append(critique)
                     self.context_manager.add_critique(task_id, critique)
-                    
+
                     # Track approval/rejection
                     if critique.overall_status == "approved":
-                        state.approvals.append(validator.agent_id)
+                        state.approvals.append(validator.agent_type.value)
                         self.context_manager.add_response(
                             task_id,
-                            validator.agent_id,
+                            validator.agent_type.value,
                             "Approved"
                         )
                     else:
-                        state.rejections.append(validator.agent_id)
+                        state.rejections.append(validator.agent_type.value)
                         all_approved = False
-                        
+
                         if critique.has_blocking_issues:
                             has_blocking = True
-                            
+
                         self.context_manager.add_response(
                             task_id,
-                            validator.agent_id,
+                            validator.agent_type.value,
                             f"Rejected: {critique.summary}"
                         )
-                    
+
                 except Exception as e:
-                    logger.error(f"Validator {validator.agent_id} failed: {e}")
-                    state.rejections.append(validator.agent_id)
+                    logger.error(f"Validator {validator.agent_type.value} failed: {e}")
+                    state.rejections.append(validator.agent_type.value)
                     all_approved = False
             
             # Check for consensus
@@ -233,11 +252,11 @@ class ConsensusLoop:
             
             if config.require_unanimous_approval:
                 required = len(validator_agents)
-            
+
             if approval_count >= required and not has_blocking:
                 state.consensus_reached = True
                 state.final_decision = "approved"
-                
+
                 self.context_manager.mark_consensus(
                     task_id,
                     f"Approved with {approval_count}/{len(validator_agents)} validations"
@@ -292,8 +311,8 @@ class ConsensusLoop:
         
         report = CritiqueReport(
             task_id=task_id,
-            reviewer_agent_id=reviewer.agent_id,
-            target_agent_id=target.agent_id,
+            reviewer_agent_id=reviewer.agent_type.value,
+            target_agent_id=target.agent_type.value,
             artifact_type="code",  # Could be parameterized
             artifact_id=str(hash(str(artifact))),
             overall_status="approved" if is_valid else "needs_revision"

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rd *)",
+      "Bash(select-object *)"
+    ]
+  },
+  "$version": 3
+}
