@@ -6,9 +6,10 @@ and technical strategy planning.
 """
 
 import logging
+import re
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -73,7 +74,7 @@ Always consider:
         self,
         config: CodeFlowConfig,
         llm: Any,
-        tools: Optional[list] = None,
+        tools: Optional[list[Callable]] = None,
     ):
         # Add architect-specific tools
         architect_tools = [
@@ -186,8 +187,6 @@ Always consider:
         Returns:
             Architecture analysis results
         """
-        from pathlib import Path
-        
         project_root = Path(project_path)
         if not project_root.exists():
             return {"error": f"Project path does not exist: {project_path}"}
@@ -311,8 +310,6 @@ Always consider:
         Returns:
             List of technical debt items
         """
-        from pathlib import Path
-        
         debt_items = []
         file_path_obj = Path(file_path)
         
@@ -578,15 +575,22 @@ Always consider:
     def _detect_magic_numbers(self, lines: list[str], file_path: str) -> list[dict]:
         """Detect magic numbers in code."""
         debts = []
-        
+
         for i, line in enumerate(lines):
-            # Skip comments and string literals
-            if "#" in line or '"' in line or "'" in line:
+            stripped = line.strip()
+            # Skip full-line comments
+            if stripped.startswith("#"):
                 continue
-            
-            # Look for numeric literals
-            import re
-            numbers = re.findall(r'\b\d+\b', line)
+            # Strip inline comments and string literals for analysis
+            code_part = stripped.split("#")[0]  # Remove inline comment
+            # Only check lines that look like code (have an assignment, operator, or function call)
+            if not any(op in code_part for op in ("=", "(", ")", "+", "-", "*", "/", ">", "<", "!", "return", "if ", "elif ", "while ", "for ")):
+                continue
+
+            # Look for numeric literals in code (not inside strings)
+            # Remove string contents first
+            code_only = re.sub(r'["\'].*?["\']', '', code_part)
+            numbers = re.findall(r'\b\d+\b', code_only)
             for num in numbers:
                 if num not in ["0", "1", "2"]:  # Common acceptable values
                     debts.append({

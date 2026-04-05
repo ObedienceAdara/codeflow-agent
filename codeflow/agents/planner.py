@@ -7,7 +7,7 @@ into actionable tasks, prioritizing work, and orchestrating the workflow.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any, Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
@@ -152,11 +152,19 @@ Return ONLY this JSON structure (no other text):
         task_map = {}
 
         for task_data in plan_data.get("tasks", []):
+            # Safely resolve agent_type, fallback to DEVELOPER
+            raw_agent = task_data.get("agent_type", "developer")
+            try:
+                agent_type = AgentType(raw_agent)
+            except ValueError:
+                logger.warning(f"Unknown agent type '{raw_agent}', defaulting to developer")
+                agent_type = AgentType.DEVELOPER
+
             task = Task(
                 title=task_data.get("title", "Untitled Task"),
                 description=task_data.get("description", ""),
                 priority=TaskPriority(task_data.get("priority", "medium")),
-                assigned_agent=AgentType(task_data.get("agent_type", "developer")),
+                assigned_agent=agent_type,
                 context={
                     "requirement": requirement,
                     "success_criteria": plan_data.get("success_criteria", []),
@@ -219,7 +227,7 @@ Return a JSON object mapping task IDs to new priorities:
             new_priority = priority_updates.get(str(task.id))
             if new_priority and new_priority in TaskPriority.__members__:
                 task.priority = TaskPriority[new_priority]
-                task.updated_at = datetime.utcnow()
+                task.updated_at = datetime.now(UTC)
 
         return tasks
 

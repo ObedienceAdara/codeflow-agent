@@ -69,7 +69,7 @@ class TreeSitterParser:
             )
 
         except ImportError:
-            logger.warning(
+            logger.debug(
                 "Tree-sitter not installed. "
                 "Run: pip install tree-sitter tree-sitter-python "
                 "tree-sitter-javascript tree-sitter-typescript"
@@ -206,13 +206,13 @@ class TreeSitterParser:
 
         elif node.type == "import_statement" or node.type == "import_from_statement":
             self._extract_python_imports(node, file_path, lines, entities)
-
-        # Recurse into all children
-        for child in node.children:
-            self._extract_python_entities(
-                child, content_bytes, file_path, lines, entities,
-                parent_type=parent_type,
-            )
+        else:
+            # Only recurse into children for nodes not handled above
+            for child in node.children:
+                self._extract_python_entities(
+                    child, content_bytes, file_path, lines, entities,
+                    parent_type=parent_type,
+                )
 
     def _get_python_node_name(self, node: Any) -> str:
         """Extract name from a Python AST node."""
@@ -357,13 +357,13 @@ class TreeSitterParser:
                 content=content_text,
                 language="javascript",
             ))
-
-        # Recurse into children
-        for child in node.children:
-            self._extract_js_ts_entities(
-                child, content_bytes, file_path, lines, entities,
-                parent_type=parent_type,
-            )
+        else:
+            # Only recurse into children for nodes not handled above
+            for child in node.children:
+                self._extract_js_ts_entities(
+                    child, content_bytes, file_path, lines, entities,
+                    parent_type=parent_type,
+                )
 
     def _get_js_ts_node_name(self, node: Any) -> str:
         """Extract name from a JS/TS AST node."""

@@ -90,6 +90,7 @@ class ExecutionConfig(BaseSettings):
     task_timeout: int = Field(default=600, gt=0, description="Task timeout in seconds")
     retry_attempts: int = Field(default=3, ge=0, description="Number of retry attempts")
     retry_delay: float = Field(default=1.0, gt=0, description="Delay between retries in seconds")
+    min_coverage: int = Field(default=80, ge=0, le=100, description="Minimum test coverage percentage")
 
     model_config = SettingsConfigDict(env_prefix="", extra="ignore")
 
@@ -183,11 +184,27 @@ class CodeFlowConfig(BaseSettings):
             raise FileNotFoundError(f"Config file not found: {config_path}")
 
         with open(config_path, "r") as f:
-            yaml_data = yaml.safe_load(f)
+            try:
+                yaml_data = yaml.safe_load(f)
+            except yaml.YAMLError as e:
+                raise ValueError(f"Malformed YAML config file: {config_path}: {e}")
 
-        # Merge YAML data with environment variables
-        # Environment variables take precedence
-        return cls(**yaml_data)
+        if not isinstance(yaml_data, dict):
+            raise ValueError(f"YAML config must be a mapping, got {type(yaml_data).__name__}")
+
+        # Explicitly construct nested models from YAML dicts
+        return cls(
+            llm=LLMConfig(**yaml_data.get("llm", {})),
+            database=DatabaseConfig(**yaml_data.get("database", {})),
+            docker=DockerConfig(**yaml_data.get("docker", {})),
+            git=GitConfig(**yaml_data.get("git", {})),
+            execution=ExecutionConfig(**yaml_data.get("execution", {})),
+            logging=LoggingConfig(**yaml_data.get("logging", {})),
+            api=APIConfig(**yaml_data.get("api", {})),
+            security=SecurityConfig(**yaml_data.get("security", {})),
+            features=FeatureFlags(**yaml_data.get("features", {})),
+            project_root=Path(yaml_data.get("project_root", ".")),
+        )
 
     def save_to_yaml(self, config_path: Path) -> None:
         """Save current configuration to a YAML file."""
@@ -218,6 +235,12 @@ def get_config(config_file: Optional[Path] = None) -> CodeFlowConfig:
     Returns:
         CodeFlowConfig instance
     """
+    import logging
+    _logger = logging.getLogger(__name__)
+
     if config_file and config_file.exists():
-        return CodeFlowConfig.load_from_yaml(config_file)
+        try:
+            return CodeFlowConfig.load_from_yaml(config_file)
+        except (ValueError, FileNotFoundError) as e:
+            _logger.warning(f"Failed to load config from {config_file}: {e}. Using defaults.")
     return CodeFlowConfig()

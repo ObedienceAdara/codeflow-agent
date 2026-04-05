@@ -5,13 +5,13 @@ Responsible for quality assurance, testing, and validation of code changes.
 """
 
 import logging
+import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..config.settings import CodeFlowConfig
 from ..models.entities import (
     AgentType,
-    ExecutionResult,
     Task,
     TaskStatus,
 )
@@ -64,7 +64,7 @@ Always consider:
         self,
         config: CodeFlowConfig,
         llm: Any,
-        tools: Optional[list] = None,
+        tools: Optional[list[Callable]] = None,
     ):
         qa_tools = [
             self.generate_tests,
@@ -132,7 +132,7 @@ Always consider:
     async def validate(self, task: Task) -> Task:
         """Validate test results and code quality."""
         logger.info(f"QA validating: {task.title}")
-        
+
         validation = {
             "all_tests_passed": True,
             "coverage_met": True,
@@ -140,7 +140,7 @@ Always consider:
             "security_issues": [],
             "ready_for_merge": True,
         }
-        
+
         # Check test results
         if "test_results" in task.context:
             results = task.context["test_results"]
@@ -150,10 +150,10 @@ Always consider:
                 validation["quality_issues"].extend([
                     f"Test failed: {t.get('name', 'unknown')}" for t in failed_tests
                 ])
-        
-        # Check coverage
+
+        # Check coverage — use explicit config value, fallback to 80
         coverage = task.context.get("coverage", 0)
-        min_coverage = self.config.features.enable_auto_refactor and 80 or 70
+        min_coverage = getattr(self.config.execution, "min_coverage", 80) or 80
         if coverage < min_coverage:
             validation["coverage_met"] = False
             validation["quality_issues"].append(
@@ -195,8 +195,6 @@ Always consider:
         Returns:
             Generated test cases
         """
-        from pathlib import Path
-        
         target_path = Path(file_path)
         if not target_path.exists():
             return {"error": f"File not found: {file_path}"}
@@ -229,7 +227,7 @@ Always consider:
             "total_tests": len(test_cases),
         }
 
-    def run_tests(
+    async def run_tests(
         self,
         test_path: str,
         test_framework: str = "pytest",
@@ -258,17 +256,12 @@ Always consider:
         # Check if sandbox is available
         sandbox = self._get_sandbox()
         if sandbox is not None and sandbox.is_available():
-            import asyncio
             try:
-                loop = asyncio.new_event_loop()
-                result = loop.run_until_complete(
-                    sandbox.execute_tests(
-                        test_path=str(test_path_obj),
-                        project_root=str(self.config.project_root),
-                        framework=test_framework,
-                    )
+                result = await sandbox.execute_tests(
+                    test_path=str(test_path_obj),
+                    project_root=str(self.config.project_root),
+                    framework=test_framework,
                 )
-                loop.close()
                 return {
                     "success": result.success,
                     "stdout": result.stdout,
@@ -391,8 +384,6 @@ Always consider:
         Returns:
             List of detected bugs
         """
-        from pathlib import Path
-        
         target_path = Path(file_path)
         if not target_path.exists():
             return [{"error": f"File not found: {file_path}"}]
@@ -434,8 +425,6 @@ Always consider:
         Returns:
             Code quality report
         """
-        from pathlib import Path
-        
         target_path = Path(file_path)
         if not target_path.exists():
             return {"error": f"File not found: {file_path}"}
@@ -568,8 +557,6 @@ Always consider:
 
     def _extract_functions(self, content: str) -> list[dict]:
         """Extract function definitions from code."""
-        import re
-        
         functions = []
         pattern = r'def\s+(\w+)\s*\(([^)]*)\)\s*(?:->\s*([^\n:]+))?'
         
@@ -585,8 +572,6 @@ Always consider:
 
     def _extract_classes(self, content: str) -> list[dict]:
         """Extract class definitions from code."""
-        import re
-        
         classes = []
         pattern = r'class\s+(\w+)(?:\s*\(\s*([^)]*)\s*\))?'
         

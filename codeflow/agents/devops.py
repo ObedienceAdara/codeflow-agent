@@ -6,7 +6,7 @@ Responsible for CI/CD, deployment, infrastructure, and monitoring.
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..config.settings import CodeFlowConfig
 from ..models.entities import (
@@ -64,7 +64,7 @@ Always consider:
         self,
         config: CodeFlowConfig,
         llm: Any,
-        tools: Optional[list] = None,
+        tools: Optional[list[Callable]] = None,
     ):
         devops_tools = [
             self.create_pipeline,

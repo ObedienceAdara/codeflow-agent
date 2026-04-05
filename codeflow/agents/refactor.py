@@ -5,8 +5,9 @@ Responsible for automated code refactoring and technical debt reduction.
 """
 
 import logging
+import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..config.settings import CodeFlowConfig
 from ..models.entities import (
@@ -65,7 +66,7 @@ Always ensure:
         self,
         config: CodeFlowConfig,
         llm: Any,
-        tools: Optional[list] = None,
+        tools: Optional[list[Callable]] = None,
     ):
         refactor_tools = [
             self.detect_code_smells,
@@ -491,8 +492,7 @@ Always ensure:
     def _detect_naming_smells(self, lines: list[str], file_path: str) -> list[dict]:
         """Detect naming-related code smells."""
         smells = []
-        import re
-        
+
         for i, line in enumerate(lines):
             # Single letter variables (excluding common ones)
             if re.search(r'\b([a-z])\s*=', line) and not re.search(r'\b(i|j|k|x|y|z|f)\s*=', line):
@@ -623,7 +623,6 @@ Always ensure:
         
         # Find the variable assignment
         assign_line = lines[line_num]
-        import re
         match = re.search(rf'{var_name}\s*=\s*(.+)', assign_line)
         
         if not match:
@@ -659,7 +658,6 @@ Always ensure:
             return {"success": False, "error": "Both old_name and new_name required"}
         
         # Simple text replacement (would need AST-based approach for safety)
-        import re
         pattern = rf'\b{re.escape(old_name)}\b'
         new_content = re.sub(pattern, new_name, content)
         

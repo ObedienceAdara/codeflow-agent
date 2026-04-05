@@ -5,12 +5,12 @@ Defines the fundamental data structures used throughout the system,
 including tasks, agents, code entities, and execution results.
 """
 
-from datetime import datetime
+from datetime import datetime, UTC
 from enum import Enum
 from typing import Any, Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskStatus(str, Enum):
@@ -86,11 +86,10 @@ class CodeEntity(BaseModel):
     content: Optional[str] = None
     language: str = "python"
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    class Config:
-        json_encoders = {UUID: str, datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={UUID: str, datetime: lambda v: v.isoformat()})
 
 
 class Relationship(BaseModel):
@@ -101,7 +100,7 @@ class Relationship(BaseModel):
     target_id: UUID
     relationship_type: RelationshipType
     metadata: dict[str, Any] = Field(default_factory=dict)
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class Task(BaseModel):
@@ -121,8 +120,8 @@ class Task(BaseModel):
     error: Optional[str] = None
     iterations: int = 0
     max_iterations: int = 10
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
@@ -134,8 +133,7 @@ class Task(BaseModel):
         """Check if task can be executed (all dependencies met)."""
         return self.status == TaskStatus.PENDING and self.iterations < self.max_iterations
 
-    class Config:
-        json_encoders = {UUID: str, datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={UUID: str, datetime: lambda v: v.isoformat()})
 
 
 class AgentState(BaseModel):
@@ -145,12 +143,11 @@ class AgentState(BaseModel):
     current_task: Optional[Task] = None
     working_memory: dict[str, Any] = Field(default_factory=dict)
     tool_outputs: list[dict[str, Any]] = Field(default_factory=list)
-    messages: list[dict[str, Any]] = Field(default_factory=list)
+    messages: list[Any] = Field(default_factory=list)  # Can hold dict or BaseMessage
     iteration_count: int = 0
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    last_updated: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class ExecutionResult(BaseModel):
@@ -192,10 +189,9 @@ class PullRequest(BaseModel):
     tests_passed: Optional[bool] = None
     review_status: Optional[str] = None
     url: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    class Config:
-        json_encoders = {UUID: str, datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={UUID: str, datetime: lambda v: v.isoformat()})
 
 
 class TechDebtItem(BaseModel):
@@ -210,10 +206,9 @@ class TechDebtItem(BaseModel):
     line_number: Optional[int] = None
     suggestion: Optional[str] = None
     estimated_effort: str = "medium"  # low, medium, high
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    class Config:
-        json_encoders = {UUID: str}
+    model_config = ConfigDict(json_encoders={UUID: str})
 
 
 class ProjectMetrics(BaseModel):
@@ -226,10 +221,9 @@ class ProjectMetrics(BaseModel):
     test_coverage: Optional[float] = None
     complexity_score: Optional[float] = None
     tech_debt_count: int = 0
-    last_analyzed: datetime = Field(default_factory=datetime.utcnow)
+    last_analyzed: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    class Config:
-        json_encoders = {datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat()})
 
 
 class DependencyInfo(BaseModel):
@@ -252,8 +246,7 @@ class WorkflowState(BaseModel):
     pull_requests: list[PullRequest] = Field(default_factory=list)
     metrics: Optional[ProjectMetrics] = None
     status: str = "initializing"  # initializing, running, paused, completed, failed
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    class Config:
-        json_encoders = {UUID: str, datetime: lambda v: v.isoformat()}
+    model_config = ConfigDict(json_encoders={UUID: str, datetime: lambda v: v.isoformat()})

@@ -6,6 +6,7 @@ including an interactive REPL mode.
 """
 
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -20,6 +21,11 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.prompt import Prompt, Confirm
 
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.styles import Style
+
 from .config.settings import get_config
 from .orchestrator.workflow import CodeFlowOrchestrator
 
@@ -29,11 +35,13 @@ console = Console()
 
 def setup_logging(verbose: bool = False):
     """Configure logging for CLI."""
-    level = logging.DEBUG if verbose else logging.INFO
+    # Default: only show WARNING+ to console (clean output)
+    # With --verbose: show INFO messages too
+    level = logging.DEBUG if verbose else logging.WARNING
     logging.basicConfig(
         level=level,
         format="%(message)s",
-        handlers=[RichHandler(console=console, rich_tracebacks=True, show_time=False)],
+        handlers=[RichHandler(console=console, rich_tracebacks=True, show_time=False, show_path=False)],
     )
 
 
@@ -75,6 +83,38 @@ def _print_commands():
     console.print(commands)
 
 
+# Command definitions for autocomplete
+COMMANDS = {
+    "/analyze": "Analyze current project",
+    "/execute": "Execute a requirement",
+    "/pr": "Create a pull request",
+    "/status": "Show workflow status",
+    "/project": "Switch project directory",
+    "/help": "Show help",
+    "/clear": "Clear screen",
+    "/exit": "Exit CodeFlow",
+}
+
+
+class CodeFlowCompleter(Completer):
+    """Custom autocompleter for slash commands."""
+
+    def get_completions(self, document, complete_event):
+        word = document.text_before_cursor.strip()
+
+        if word.startswith("/"):
+            cmd_prefix = word.split()[0].lower()
+
+            for full_cmd, description in COMMANDS.items():
+                if full_cmd.startswith(cmd_prefix):
+                    yield Completion(
+                        full_cmd,
+                        start_position=-len(word),
+                        display=HTML(f'<cyan>{full_cmd}</cyan>'),
+                        display_meta=HTML(f'<grey>- {description}</grey>'),
+                    )
+
+
 async def _interactive_session(project_path: Path, verbose: bool):
     """Run the interactive REPL session."""
     _print_banner()
@@ -82,21 +122,33 @@ async def _interactive_session(project_path: Path, verbose: bool):
     setup_logging(verbose)
     orchestrator = CodeFlowOrchestrator(project_root=project_path)
 
+    # Set up prompt_toolkit session with autocomplete
+    session = PromptSession(
+        completer=CodeFlowCompleter(),
+        complete_while_typing=True,
+        style=Style.from_dict({
+            'completion-menu.completion': 'fg:#00aaaa',
+            'completion-menu.completion.current': 'bg:#00aaaa #000000',
+            'completion-menu.meta.completion': 'fg:gray',
+            'completion-menu.meta.completion.current': 'bg:#00aaaa #000000',
+        }),
+        message=HTML('<green>&gt;</green> '),
+    )
+
     try:
         # Initialize on first command
         initialized = False
 
         while True:
             try:
-                user_input = Prompt.ask(
-                    "[green]>[/]",
-                    console=console,
-                ).strip()
+                user_input = await session.prompt_async()
+                user_input = user_input.strip()
             except EOFError:
-                break
+                console.print("\n[dim]Goodbye![/]")
+                return
             except KeyboardInterrupt:
-                console.print()
-                continue
+                console.print("\n[dim]Goodbye![/]")
+                return
 
             if not user_input:
                 continue
@@ -149,18 +201,17 @@ async def _interactive_session(project_path: Path, verbose: bool):
                 elif cmd == "analyze":
                     console.print(Panel.fit("🔍 Analyzing Codebase", style="bold blue"))
 
+                    if not initialized:
+                        with console.status("[dim]Initializing CodeFlow...[/]"):
+                            await orchestrator.initialize()
+                        initialized = True
+
                     with Progress(
                         SpinnerColumn(),
                         TextColumn("[progress.description]{task.description}"),
                         console=console,
                     ) as progress:
-                        task = progress.add_task("Initializing...", total=None)
-
-                        if not initialized:
-                            await orchestrator.initialize()
-                            initialized = True
-                        progress.update(task, description="Analyzing files...")
-
+                        task = progress.add_task("Analyzing files...", total=None)
                         stats = await orchestrator.analyze_project()
                         progress.update(task, completed=True)
 
@@ -184,11 +235,12 @@ async def _interactive_session(project_path: Path, verbose: bool):
                         console.print("[yellow]ℹ[/] Usage: [bold]/execute <requirement>[/]")
                         continue
 
-                    console.print(Panel.fit(f"⚡ Executing: {args[:60]}...", style="bold magenta"))
-
                     if not initialized:
-                        await orchestrator.initialize()
+                        with console.status("[dim]Initializing CodeFlow...[/]"):
+                            await orchestrator.initialize()
                         initialized = True
+
+                    console.print(Panel.fit(f"⚡ Executing: {args[:60]}...", style="bold magenta"))
 
                     with Progress(
                         SpinnerColumn(),
@@ -212,11 +264,12 @@ async def _interactive_session(project_path: Path, verbose: bool):
                         console.print("[yellow]ℹ[/] Usage: [bold]/pr <feature description>[/]")
                         continue
 
-                    console.print(Panel.fit(f"📝 Creating PR: {args[:60]}...", style="bold yellow"))
-
                     if not initialized:
-                        await orchestrator.initialize()
+                        with console.status("[dim]Initializing CodeFlow...[/]"):
+                            await orchestrator.initialize()
                         initialized = True
+
+                    console.print(Panel.fit(f"📝 Creating PR: {args[:60]}...", style="bold yellow"))
 
                     with Progress(
                         SpinnerColumn(),
@@ -241,8 +294,15 @@ async def _interactive_session(project_path: Path, verbose: bool):
 
             # Natural language - default to execute
             else:
+                # Reserved words that look like commands
+                reserved = {"help", "exit", "quit", "status", "clear", "cls", "version"}
+                if user_input.lower() in reserved:
+                    console.print(f"[yellow]ℹ[/] Type [bold]/{user_input}[/] for commands.")
+                    continue
+
                 if not initialized:
-                    await orchestrator.initialize()
+                    with console.status("[dim]Initializing CodeFlow...[/]"):
+                        await orchestrator.initialize()
                     initialized = True
 
                 console.print(Panel.fit(f"⚡ Executing: {user_input[:60]}...", style="bold magenta"))
@@ -454,8 +514,17 @@ def status(project_path: Path = typer.Argument(default=Path("."), help="Path to 
     """Show current workflow status."""
     setup_logging()
     console.print(Panel.fit("📊 Workflow Status", style="bold cyan"))
-    console.print("[green]✓[/] CodeFlow is ready")
     console.print(f"[blue]ℹ[/] Project: {project_path.resolve()}")
+    console.print("[green]✓[/] CodeFlow Agent ready")
+
+    # Check for LLM configuration
+    import os
+    provider = os.environ.get("LLM_PROVIDER", "not configured")
+    api_key_set = bool(os.environ.get(f"{provider.upper()}_API_KEY"))
+    if api_key_set:
+        console.print(f"[green]✓[/] LLM: {provider} (API key configured)")
+    else:
+        console.print(f"[yellow]⚠[/] LLM: {provider} (no API key found)")
 
 
 @app.command()
@@ -468,13 +537,39 @@ def refactor(
     setup_logging()
     console.print(Panel.fit("♻  Refactoring", style="bold purple"))
 
+    from .core.code_smell_detector import CodeSmellDetector, SmellConfig
+
+    detector = CodeSmellDetector(SmellConfig())
+    smells_found = 0
+    files_scanned = 0
+
     if auto_detect:
         console.print("[blue]ℹ[/] Auto-detecting technical debt...")
 
-    if dry_run:
-        console.print("[yellow]⚠ Dry run mode - showing suggestions only[/]")
+        # Scan Python files
+        for py_file in project_path.rglob("*.py"):
+            if any(part.startswith(".") for part in py_file.parts):
+                continue
+            try:
+                content = py_file.read_text(encoding="utf-8", errors="ignore")
+                smells = detector.detect_all(str(py_file.relative_to(project_path)), content)
+                smells_found += len(smells)
+                files_scanned += 1
 
-    console.print("[green]✓[/] Refactoring complete (placeholder)")
+                if dry_run and smells:
+                    for smell in smells:
+                        console.print(
+                            f"[yellow]{smell.severity.value.upper()}[/] "
+                            f"[bold]{smell.name}[/] in {smell.file_path}:{smell.line_start} — "
+                            f"{smell.description}"
+                        )
+            except Exception as e:
+                logger.debug(f"Failed to scan {py_file}: {e}")
+
+    console.print(f"[green]✓[/] Scanned {files_scanned} files, found {smells_found} code smell(s)")
+
+    if dry_run and smells_found > 0:
+        console.print("[yellow]⚠ Dry run mode — run without --dry-run to apply fixes[/]")
 
 
 @app.command()
@@ -518,7 +613,15 @@ def main():
     """Entry point for CLI."""
     # If no arguments, launch interactive mode
     if len(sys.argv) == 1:
-        asyncio.run(_interactive_session(Path("."), verbose=False))
+        try:
+            asyncio.run(_interactive_session(Path("."), verbose=False))
+        except (KeyboardInterrupt, EOFError, SystemExit):
+            console.print("\n[dim]Goodbye![/]")
+        except asyncio.CancelledError:
+            pass  # Asyncio cancellation during shutdown
+        except Exception as e:
+            console.print(f"\n[red]Fatal error:[/] {e}")
+            sys.exit(1)
     else:
         app()
 

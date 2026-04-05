@@ -140,7 +140,7 @@ class ConsensusLoop:
         while config.should_continue(
             state.iteration,
             len(state.approvals),
-            any(r.has_blocking_issues for r in state.critiques[-len(validator_agents):])
+            any(r.has_blocking_issues for r in state.critiques)
             if state.critiques else False
         ):
             state.iteration += 1

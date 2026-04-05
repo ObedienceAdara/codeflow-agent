@@ -51,6 +51,7 @@ class DockerSandboxExecutor:
         self.config = config.docker
         self._client: Any = None
         self._active_containers: list[str] = []
+        self._cleaned: set[str] = set()
 
     def _get_client(self) -> Any:
         """Lazy-initialize Docker client."""
@@ -130,14 +131,21 @@ class DockerSandboxExecutor:
                 "mode": "ro",
             }
 
-        # Create temporary file for code
+        # Create temporary file for code (mounted into container)
         code_path = await self._write_code_to_temp(code, language)
+        code_dir = str(Path(code_path).parent)
+        volumes[code_dir] = {
+            "bind": "/tmp/codeflow",
+            "mode": "ro",
+        }
 
         # Build command
         if command_override:
             cmd = command_override
         else:
-            cmd = self._get_command_for_language(language, code_path)
+            # Use the mounted path inside the container
+            container_code_path = f"/tmp/codeflow/{Path(code_path).name}"
+            cmd = self._get_command_for_language(language, container_code_path)
 
         container_kwargs = {
             "image": image,
@@ -145,8 +153,7 @@ class DockerSandboxExecutor:
             "name": container_name,
             "environment": env,
             "mem_limit": mem_limit,
-            "nano_cpus": nano_cpus if not self.config.cpu_limit == 0 else None,
-            "network_disabled": self.config.network_disabled,
+            "nano_cpus": nano_cpus if self.config.cpu_limit else None,
             "detach": True,
             "stdout": True,
             "stderr": True,
@@ -368,11 +375,14 @@ class DockerSandboxExecutor:
         return limit  # Docker SDK accepts strings like "2g" directly
 
     async def _cleanup_container(self, container_name_or_id: str) -> None:
-        """Remove a container by name or ID."""
+        """Remove a container by name or ID, with dedup protection."""
+        if container_name_or_id in self._cleaned:
+            return  # Already cleaned, avoid double-remove
         try:
             client = self._get_client()
             container = client.containers.get(container_name_or_id)
             container.remove(force=True)
+            self._cleaned.add(container_name_or_id)
             if container_name_or_id in self._active_containers:
                 self._active_containers.remove(container_name_or_id)
         except Exception:

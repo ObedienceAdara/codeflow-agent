@@ -5,14 +5,13 @@ Responsible for system monitoring, alerting, and incident response.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..config.settings import CodeFlowConfig
 from ..models.entities import (
     AgentType,
-    ExecutionResult,
     Task,
     TaskStatus,
 )
@@ -65,7 +64,7 @@ Always prioritize:
         self,
         config: CodeFlowConfig,
         llm: Any,
-        tools: Optional[list] = None,
+        tools: Optional[list[Callable]] = None,
     ):
         monitor_tools = [
             self.check_system_health,
@@ -171,7 +170,7 @@ Always prioritize:
         
         health = {
             "overall_status": "healthy",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "components": {},
         }
         
@@ -298,7 +297,7 @@ Always prioritize:
             "message": message,
             "recipients": recipients or [],
             "status": "active",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
             "triggered_count": 0,
         }
         
@@ -333,7 +332,7 @@ Always prioritize:
             "incident_id": incident_id,
             "action": action,
             "success": True,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "details": details or {},
         }
         
@@ -344,10 +343,10 @@ Always prioritize:
         
         if action == "resolve":
             incident["status"] = "resolved"
-            incident["resolved_at"] = datetime.utcnow().isoformat()
+            incident["resolved_at"] = datetime.now(UTC).isoformat()
         elif action == "acknowledge":
             incident["status"] = "acknowledged"
-            incident["acknowledged_at"] = datetime.utcnow().isoformat()
+            incident["acknowledged_at"] = datetime.now(UTC).isoformat()
         
         return response
 
@@ -400,7 +399,7 @@ Always prioritize:
         health = self.check_system_health()
         return {
             "status": health["overall_status"],
-            "checked_at": datetime.utcnow().isoformat(),
+            "checked_at": datetime.now(UTC).isoformat(),
         }
 
     async def _handle_alert(self, task: Task) -> str:
@@ -424,7 +423,7 @@ Always prioritize:
         # Placeholder - would integrate with actual health checks
         return {
             "status": "healthy",
-            "last_check": datetime.utcnow().isoformat(),
+            "last_check": datetime.now(UTC).isoformat(),
             "response_time_ms": 50,
             "details": {},
         }

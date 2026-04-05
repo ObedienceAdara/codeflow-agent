@@ -9,7 +9,7 @@ import asyncio
 import logging
 import os
 import subprocess
-from datetime import datetime
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any, Literal, Optional
 from uuid import UUID
@@ -303,7 +303,6 @@ class CodeFlowOrchestrator:
                 # Parse code files and populate knowledge graph
                 if ext in code_extensions:
                     try:
-                        content = "".join(lines) if 'lines' in dir() else ""
                         with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                             content = f.read()
 
@@ -349,7 +348,7 @@ class CodeFlowOrchestrator:
             total_lines=stats["total_lines"],
             languages=stats["languages"],
             dependencies=stats["dependencies"],
-            last_analyzed=datetime.utcnow(),
+            last_analyzed=datetime.now(UTC),
         )
 
         # Sync knowledge graph to workflow state
@@ -700,8 +699,8 @@ class CodeFlowOrchestrator:
             "error": None,
         }
 
-        # Execute the graph
-        final_state = await app.ainvoke(initial_state)
+        # Execute the graph with generous recursion limit
+        final_state = await app.ainvoke(initial_state, config={"recursion_limit": 50})
 
         # Reconstruct workflow state from graph output
         self._reconstruct_state_from_graph(final_state)
@@ -739,7 +738,18 @@ class CodeFlowOrchestrator:
         # Define edges
         graph.set_entry_point("select_task")
         graph.add_edge("select_task", "execute_task")
-        graph.add_edge("execute_task", "review_task")
+
+        # Conditional routing after execute: success → review, failure → should_continue (skip review/qa)
+        graph.add_conditional_edges(
+            "execute_task",
+            self._langgraph_route_after_execute,
+            {
+                "review": "review_task",
+                "skip_review": "qa_task",  # Task completed but no reviewer available
+                "fail": "should_continue",  # Skip review and QA for failed tasks
+            },
+        )
+
         graph.add_edge("review_task", "qa_task")
         graph.add_edge("qa_task", "should_continue")
 
@@ -906,6 +916,23 @@ class CodeFlowOrchestrator:
 
         return {"status": "running"}
 
+    def _langgraph_route_after_execute(self, state: dict) -> Literal["review", "skip_review", "fail"]:
+        """Route based on current task status: success → review, failure → skip review."""
+        current_task_data = state.get("current_task")
+        if not current_task_data:
+            return "fail"
+
+        task_status = current_task_data.get("status", "")
+        if task_status == "completed":
+            # Task succeeded — route to reviewer
+            return "review"
+        elif task_status == "failed":
+            # Task failed — skip review and QA, go straight to should_continue
+            return "fail"
+        else:
+            # Unknown status — treat as completed to keep moving
+            return "skip_review"
+
     async def _langgraph_should_continue(self, state: dict) -> dict:
         """Check if there are more tasks to execute."""
         all_tasks = self._reconstruct_tasks(state["tasks"])
@@ -943,19 +970,24 @@ class CodeFlowOrchestrator:
     def _reconstruct_state_from_graph(self, final_state: dict) -> None:
         """Reconstruct WorkflowState from LangGraph output."""
         tasks_data = final_state.get("tasks", {})
+        failed_count = 0
         for tid, tdata in tasks_data.items():
             try:
                 task = Task(**tdata)
                 self.state.tasks[task.id] = task
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to reconstruct task {tid}: {e}")
+                failed_count += 1
+
+        if failed_count:
+            logger.warning(f"{failed_count}/{len(tasks_data)} tasks failed to reconstruct")
 
         failed_ids = final_state.get("failed_ids", [])
         self.state.status = final_state.get("status", "completed")
-        self.state.updated_at = datetime.utcnow()
+        self.state.updated_at = datetime.now(UTC)
 
         if failed_ids:
-            logger.warning(f"{len(failed_ids)} tasks failed")
+            logger.warning(f"{len(failed_ids)} tasks failed during execution")
 
     async def create_pull_request(
         self,
@@ -1141,7 +1173,7 @@ class CodeFlowOrchestrator:
 
     def get_workflow_state(self) -> WorkflowState:
         """Get current workflow state."""
-        self.state.updated_at = datetime.utcnow()
+        self.state.updated_at = datetime.now(UTC)
         return self.state
 
     async def shutdown(self) -> None:

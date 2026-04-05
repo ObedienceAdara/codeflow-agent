@@ -6,11 +6,12 @@ for LLM interaction, tool execution, and state management.
 """
 
 import asyncio
+import inspect
 import json
 import logging
-from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Union
+from abc import ABC
+from datetime import datetime, UTC
+from typing import Any, Callable, Optional, Union
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -64,8 +65,6 @@ class BaseAgent(ABC):
 
     def get_tools_schema(self) -> list[dict[str, Any]]:
         """Get the schema for all registered tools."""
-        import inspect
-
         # Mapping from Python types to valid JSON Schema types
         JSON_TYPE_MAP = {
             "str": "string",
@@ -161,14 +160,15 @@ class BaseAgent(ABC):
                 error=f"Unknown tool: {tool_name}",
             )
 
-        start_time = datetime.utcnow()
+        start_time = datetime.now(UTC)
         try:
             tool_func = self._tool_registry[tool_name]
-            result = await asyncio.get_event_loop().run_in_executor(
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
                 None, lambda: tool_func(**kwargs)
             )
 
-            duration = (datetime.utcnow() - start_time).total_seconds() * 1000
+            duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
 
             if isinstance(result, ExecutionResult):
                 result.duration_ms = duration
@@ -180,7 +180,7 @@ class BaseAgent(ABC):
                 duration_ms=duration,
             )
         except Exception as e:
-            duration = (datetime.utcnow() - start_time).total_seconds() * 1000
+            duration = (datetime.now(UTC) - start_time).total_seconds() * 1000
             logger.exception(f"Tool execution failed: {tool_name}")
             return ExecutionResult(
                 success=False,
@@ -243,7 +243,7 @@ Your JSON response must have this structure:
             Updated task with results or error information
         """
         task.status = TaskStatus.IN_PROGRESS
-        task.started_at = datetime.utcnow()
+        task.started_at = datetime.now(UTC)
         task.assigned_agent = self.agent_type
         self.state.current_task = task
 
@@ -273,8 +273,8 @@ Your JSON response must have this structure:
                 task.status = TaskStatus.FAILED
                 break
 
-        task.completed_at = datetime.utcnow()
-        task.updated_at = datetime.utcnow()
+        task.completed_at = datetime.now(UTC)
+        task.updated_at = datetime.now(UTC)
         self.state.current_task = None
 
         logger.info(
@@ -284,16 +284,23 @@ Your JSON response must have this structure:
 
     async def _invoke_llm(self, messages: list[BaseMessage]) -> dict[str, Any]:
         """Invoke the LLM with the given messages and parse response."""
-        # Bind tools to LLM if supported
-        llm_with_tools = self.llm.bind_tools(self.get_tools_schema())
-
-        # Invoke LLM
-        response = await llm_with_tools.ainvoke(messages)
+        # Use plain text invocation (no bind_tools) — LLM returns JSON in text
+        # This works reliably across all providers (Groq/Llama, Anthropic, OpenAI, etc.)
+        # Tool schemas are described in the system prompt
+        response = await self.llm.ainvoke(messages)
 
         # Parse response content
         try:
-            if isinstance(response.content, str):
-                raw = response.content.strip()
+            content = response.content
+            if content is None:
+                logger.warning("LLM returned None content")
+                return {
+                    "action": "complete_task",
+                    "result": "",
+                    "reasoning": "LLM returned empty response",
+                }
+            if isinstance(content, str):
+                raw = content.strip()
                 # Strip markdown code fences
                 if raw.startswith("```"):
                     lines = raw.split("\n")
@@ -303,13 +310,13 @@ Your JSON response must have this structure:
                         lines = lines[:-1]
                     raw = "\n".join(lines).strip()
                 return json.loads(raw)
-            return response.content
+            return content
         except json.JSONDecodeError:
             # If parsing fails, create a default response
             logger.warning("Failed to parse LLM response as JSON")
             return {
                 "action": "complete_task",
-                "result": response.content,
+                "result": str(content),
                 "reasoning": "Response parsing failed, returning raw output",
             }
 
@@ -381,24 +388,24 @@ Your JSON response must have this structure:
             task.status = TaskStatus.FAILED
             return ExecutionResult(success=False, error=task.error)
 
-    @abstractmethod
-    async def analyze(self, task: Task) -> Task:
-        """Analyze a task and return updated task with analysis results."""
-        pass
+    def analyze(self, task: Task) -> Task:
+        """Analyze a task. Override in subclasses for domain-specific analysis."""
+        logger.debug(f"{self.agent_type.value}: analyze() not implemented, returning task as-is")
+        return task
 
-    @abstractmethod
-    async def execute(self, task: Task) -> Task:
-        """Execute a task and return updated task with execution results."""
-        pass
+    def execute(self, task: Task) -> Task:
+        """Execute a task. Override in subclasses for domain-specific execution."""
+        logger.debug(f"{self.agent_type.value}: execute() not implemented, returning task as-is")
+        return task
 
-    @abstractmethod
-    async def validate(self, task: Task) -> Task:
-        """Validate task results and return updated task."""
-        pass
+    def validate(self, task: Task) -> Task:
+        """Validate task results. Override in subclasses for domain-specific validation."""
+        logger.debug(f"{self.agent_type.value}: validate() not implemented, returning task as-is")
+        return task
 
     def get_state(self) -> AgentState:
         """Get the current agent state."""
-        self.state.last_updated = datetime.utcnow()
+        self.state.last_updated = datetime.now(UTC)
         return self.state
 
     def reset_state(self) -> None:

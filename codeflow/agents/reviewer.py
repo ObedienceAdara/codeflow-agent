@@ -5,8 +5,9 @@ Responsible for code reviews, quality assessment, and feedback.
 """
 
 import logging
+import re
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from ..config.settings import CodeFlowConfig
 from ..models.entities import (
@@ -63,7 +64,7 @@ Always provide:
         self,
         config: CodeFlowConfig,
         llm: Any,
-        tools: Optional[list] = None,
+        tools: Optional[list[Callable]] = None,
     ):
         reviewer_tools = [
             self.review_code,
@@ -663,9 +664,8 @@ Always provide:
     def _suggest_maintainability_improvements(self, content: str, file_path: str) -> list[dict]:
         """Suggest maintainability improvements."""
         suggestions = []
-        
+
         # Check for magic numbers
-        import re
         numbers = re.findall(r'\b\d{3,}\b', content)
         if numbers:
             suggestions.append({

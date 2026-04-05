@@ -7,7 +7,7 @@ debate, and iterative refinement.
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
-from datetime import datetime
+from datetime import datetime, UTC
 
 
 class CritiqueType(Enum):
@@ -150,7 +150,7 @@ class CritiqueReport:
             "critical_count": self.critical_count,
             "total_issues": self.total_issues,
             "critiques": [cp.to_dict() for cp in self.critique_points],
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.now(UTC).isoformat()
         }
 
 

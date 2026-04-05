@@ -4,8 +4,10 @@ The Developer agent is responsible for implementing code changes,
 writing new features, and fixing bugs.
 """
 
+import glob
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -108,16 +110,19 @@ Always think through your changes before implementing them."""
         except Exception as e:
             return f"Error reading file: {str(e)}"
 
-    def write_file(self, file_path: str, content: str) -> str:
+    def write_file(self, file_path: str, content: str = "", file_content: str = "") -> str:
         """Write content to an existing file.
 
         Args:
             file_path: Relative path to the file
             content: Content to write
+            file_content: Alias for content (LLM compatibility)
 
         Returns:
             Success message or error
         """
+        if not content and file_content:
+            content = file_content
         try:
             safe_path = self._safe_path(file_path)
             if not safe_path.exists():
@@ -128,16 +133,26 @@ Always think through your changes before implementing them."""
         except Exception as e:
             return f"Error writing file: {str(e)}"
 
-    def create_file(self, file_path: str, content: str) -> str:
+    def create_file(self, file_path: str = "", content: str = "", file_content: str = "", directory: str = "") -> str:
         """Create a new file with content.
 
         Args:
             file_path: Relative path to the new file
             content: Initial content
+            file_content: Alias for content (LLM compatibility)
+            directory: Alias for file_path when directory structure is specified
 
         Returns:
             Success message or error
         """
+        # Resolve LLM-provided aliases
+        if not file_path and directory:
+            file_path = directory
+        if not content and file_content:
+            content = file_content
+        if not file_path or not content:
+            return "Error: file_path and content are required"
+
         try:
             safe_path = self._safe_path(file_path)
             if safe_path.exists():
@@ -167,22 +182,24 @@ Always think through your changes before implementing them."""
         except Exception as e:
             return f"Error deleting file: {str(e)}"
 
-    def search_code(self, pattern: str, file_pattern: str = "*.py") -> str:
+    def search_code(self, pattern: str = "", file_pattern: str = "*.py", query: str = "") -> str:
         """Search for a pattern in code files.
 
         Args:
             pattern: Text or regex pattern to search for
             file_pattern: Glob pattern for files to search
+            query: Alias for pattern (LLM compatibility)
 
         Returns:
             Matching lines with file paths
         """
+        if not pattern and query:
+            pattern = query
+        if not pattern:
+            return "Error: pattern (or query) is required"
         try:
             if self.project_root is None:
                 return "Error: Project root not set"
-
-            import glob
-            import re
 
             results = []
             files = glob.glob(
@@ -193,14 +210,19 @@ Always think through your changes before implementing them."""
 
             for file_path in files[:100]:  # Limit to 100 files
                 try:
-                    path = Path(file_path)
+                    path = Path(file_path).resolve()
+                    # Security: ensure file is within project root
+                    try:
+                        rel = path.relative_to(self.project_root.resolve())
+                    except ValueError:
+                        continue  # Skip files outside project root
+
                     if path.is_file():
                         with open(path, "r", encoding="utf-8", errors="ignore") as f:
                             for line_num, line in enumerate(f, 1):
                                 if compiled_pattern.search(line):
-                                    rel_path = path.relative_to(self.project_root)
                                     results.append(
-                                        f"{rel_path}:{line_num}: {line.rstrip()}"
+                                        f"{rel}:{line_num}: {line.rstrip()}"
                                     )
                 except Exception:
                     continue
