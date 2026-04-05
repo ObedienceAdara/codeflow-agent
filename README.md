@@ -19,23 +19,45 @@
 
 ## 🏗️ Architecture
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    CodeFlow Orchestrator                     │
-├─────────────────────────────────────────────────────────────┤
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ Architect│  │ Developer│  │   QA     │  │  DevOps  │    │
-│  │  Agent   │  │  Agent   │  │  Agent   │  │  Agent   │    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐    │
-│  │ Reviewer │  │ Refactor │  │ Planner  │  │ Monitor  │    │
-│  │  Agent   │  │  Agent   │  │  Agent   │  │  Agent   │    │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘    │
-├─────────────────────────────────────────────────────────────┤
-│              Shared Context & Knowledge Graph                │
-├─────────────────────────────────────────────────────────────┤
-│  Tools: Git │ Docker │ LSP │ Test Runners │ Package Mgrs   │
-└─────────────────────────────────────────────────────────────┘
+```mermaid 
+graph TB
+    subgraph Orchestrator["CodeFlow Orchestrator"]
+        A[Architect Agent]
+        B[Developer Agent]
+        C[QA Agent]
+        D[DevOps Agent]
+        E[Reviewer Agent]
+        F[Refactor Agent]
+        G[Planner Agent]
+        H[Monitor Agent]
+    end
+
+    subgraph Context["Shared Context & Knowledge Graph"]
+        KG[(Knowledge Graph)]
+    end
+
+    subgraph Tools["Tools"]
+        T1[Git]
+        T2[Docker]
+        T3[LSP]
+        T4[Test Runners]
+        T5[Package Mgrs]
+    end
+
+    A --> KG
+    B --> KG
+    C --> KG
+    D --> KG
+    E --> KG
+    F --> KG
+    G --> KG
+    H --> KG
+
+    KG --- T1
+    KG --- T2
+    KG --- T3
+    KG --- T4
+    KG --- T5
 ```
 
 ## 📦 Installation
