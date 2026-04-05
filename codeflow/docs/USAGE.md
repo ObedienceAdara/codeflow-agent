@@ -27,28 +27,42 @@
 
 ## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     CodeFlow Orchestrator                        │
-├─────────────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ PlannerAgent │→ │ Developer    │→ │ Reviewer     │          │
-│  └──────────────┘  │   Agent      │  │   Agent      │          │
-│                    └──────────────┘  └──────────────┘          │
-│                           ↓                    ↓                │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ Architect    │← │ Consensus    │← │ QA Agent     │          │
-│  │   Agent      │  │   Loop       │  │              │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-│                           ↓                                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
-│  │ DevOps       │← │ Refactor     │← │ Monitor      │          │
-│  │   Agent      │  │   Agent      │  │   Agent      │          │
-│  └──────────────┘  └──────────────┘  └──────────────┘          │
-├─────────────────────────────────────────────────────────────────┤
-│                    Shared Knowledge Graph                        │
-│              (NetworkX + Vector Index + State Store)             │
-└─────────────────────────────────────────────────────────────────┘
+```mermaid 
+graph TB
+    subgraph Orchestrator["CodeFlow Orchestrator"]
+        Planner[PlannerAgent]
+        Developer[Developer Agent]
+        Reviewer[Reviewer Agent]
+        Architect[Architect Agent]
+        Consensus[Consensus Loop]
+        QA[QA Agent]
+        DevOps[DevOps Agent]
+        Refactor[Refactor Agent]
+        Monitor[Monitor Agent]
+    end
+
+    subgraph KnowledgeGraph["Shared Knowledge Graph"]
+        KG[(NetworkX + Vector Index + State Store)]
+    end
+
+    Planner --> Developer
+    Developer --> Reviewer
+    Reviewer --> Consensus
+    QA --> Consensus
+    Consensus --> Architect
+    Architect --> Refactor
+    Refactor --> DevOps
+    Monitor --> Refactor
+
+    Planner --- KG
+    Developer --- KG
+    Reviewer --- KG
+    Architect --- KG
+    Consensus --- KG
+    QA --- KG
+    DevOps --- KG
+    Refactor --- KG
+    Monitor --- KG
 ```
 
 ### Core Components
