@@ -51,7 +51,7 @@
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/codeflow-agent.git
+git clone https://github.com/ObedienceAdara/codeflow-agent.git
 cd codeflow-agent
 
 # Create virtual environment
