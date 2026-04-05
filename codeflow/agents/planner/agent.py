@@ -12,14 +12,14 @@ from typing import Any, Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from ..config.settings import CodeFlowConfig
-from ..models.entities import (
+from ...config.settings import CodeFlowConfig
+from ...models.entities import (
     AgentType,
     Task,
     TaskPriority,
     TaskStatus,
 )
-from .base import BaseAgent
+from ..base import BaseAgent
 
 logger = logging.getLogger(__name__)
 

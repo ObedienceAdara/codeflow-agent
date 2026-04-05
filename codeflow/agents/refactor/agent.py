@@ -9,15 +9,15 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from ..config.settings import CodeFlowConfig
-from ..models.entities import (
+from ...config.settings import CodeFlowConfig
+from ...models.entities import (
     AgentType,
     CodeChange,
     Task,
     TaskStatus,
     TechDebtItem,
 )
-from .base import BaseAgent
+from ..base import BaseAgent
 
 logger = logging.getLogger(__name__)
 

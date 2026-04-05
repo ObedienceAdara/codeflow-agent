@@ -8,14 +8,14 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from ..config.settings import CodeFlowConfig
-from ..models.entities import (
+from ...config.settings import CodeFlowConfig
+from ...models.entities import (
     AgentType,
     ExecutionResult,
     Task,
     TaskStatus,
 )
-from .base import BaseAgent
+from ..base import BaseAgent
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(rd *)",
-      "Bash(select-object *)"
+      "Bash(select-object *)",
+      "Bash(move *)",
+      "Bash(findstr *)"
     ]
   },
   "$version": 3

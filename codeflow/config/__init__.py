@@ -13,6 +13,7 @@ from .settings import (
     SecurityConfig,
     get_config,
 )
+from .global_config import GlobalConfig, get_global_config
 
 __all__ = [
     "CodeFlowConfig",
@@ -26,4 +27,6 @@ __all__ = [
     "SecurityConfig",
     "FeatureFlags",
     "get_config",
+    "GlobalConfig",
+    "get_global_config",
 ]

@@ -13,8 +13,8 @@ from typing import Any, Callable, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from ..config.settings import CodeFlowConfig
-from ..models.entities import (
+from ...config.settings import CodeFlowConfig
+from ...models.entities import (
     AgentType,
     CodeChange,
     CodeEntity,
@@ -25,7 +25,7 @@ from ..models.entities import (
     TaskStatus,
     TechDebtItem,
 )
-from .base import BaseAgent
+from ..base import BaseAgent
 
 logger = logging.getLogger(__name__)
 

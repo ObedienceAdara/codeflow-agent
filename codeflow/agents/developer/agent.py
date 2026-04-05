@@ -13,15 +13,15 @@ from typing import Any, Callable, Optional
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from ..config.settings import CodeFlowConfig
-from ..core.diff_protocol import DiffProtocol
-from ..models.entities import (
+from ...config.settings import CodeFlowConfig
+from ...core.diff_protocol import DiffProtocol
+from ...models.entities import (
     AgentType,
     CodeChange,
     Task,
     TaskStatus,
 )
-from .base import BaseAgent
+from ..base import BaseAgent
 
 logger = logging.getLogger(__name__)
 

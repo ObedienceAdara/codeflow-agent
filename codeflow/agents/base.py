@@ -287,7 +287,41 @@ Your JSON response must have this structure:
         # Use plain text invocation (no bind_tools) — LLM returns JSON in text
         # This works reliably across all providers (Groq/Llama, Anthropic, OpenAI, etc.)
         # Tool schemas are described in the system prompt
-        response = await self.llm.ainvoke(messages)
+        try:
+            response = await self.llm.ainvoke(messages)
+        except Exception as e:
+            # Graceful LLM error handling
+            error_msg = str(e).lower()
+            error_full = str(e)
+
+            if "rate limit" in error_msg or "rate_limit" in error_msg or "429" in error_msg:
+                # Parse retry time if available
+                import re
+                retry_match = re.search(r"try again in\s+([\dmh]+)", error_full)
+                retry_info = f" ({retry_match.group(1)})" if retry_match else ""
+                logger.warning(f"⏳ Rate limit reached{retry_info}. Task paused.")
+                return {
+                    "action": "request_help",
+                    "reasoning": f"Rate limit exceeded{retry_info}. Please wait and retry, or switch providers.",
+                }
+            elif "api_key" in error_msg or "unauthorized" in error_msg or "401" in error_msg or "authentication" in error_msg:
+                logger.error(f"🔑 API key invalid or expired. Please run /setup to reconfigure.")
+                return {
+                    "action": "request_help",
+                    "reasoning": "API key is invalid. Run /setup to configure a new key.",
+                }
+            elif "connection" in error_msg or "network" in error_msg:
+                logger.error(f"🌐 Network unavailable. Check internet connection.")
+                return {
+                    "action": "request_help",
+                    "reasoning": "Network error. Check internet connection.",
+                }
+            else:
+                logger.error(f"LLM error: {error_full}")
+                return {
+                    "action": "request_help",
+                    "reasoning": f"LLM error: {error_full}",
+                }
 
         # Parse response content
         try:

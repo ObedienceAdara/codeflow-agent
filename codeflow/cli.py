@@ -18,8 +18,9 @@ from rich.console import Console
 from rich.logging import RichHandler
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
+
+logger = logging.getLogger(__name__)
 from rich.table import Table
-from rich.prompt import Prompt, Confirm
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion
@@ -74,6 +75,8 @@ def _print_commands():
     commands.add_row("/analyze", "Analyze current project and build knowledge graph")
     commands.add_row("/execute <req>", "Execute a requirement through the workflow")
     commands.add_row("/pr <feature>", "Create a pull request for a feature")
+    commands.add_row("/setup", "Configure or change LLM provider")
+    commands.add_row("/model", "Switch the model for current provider")
     commands.add_row("/status", "Show current workflow status")
     commands.add_row("/project <path>", "Switch to a different project directory")
     commands.add_row("/help", "Show this help message")
@@ -88,6 +91,8 @@ COMMANDS = {
     "/analyze": "Analyze current project",
     "/execute": "Execute a requirement",
     "/pr": "Create a pull request",
+    "/setup": "Configure or change LLM provider",
+    "/model": "Switch the model for current provider",
     "/status": "Show workflow status",
     "/project": "Switch project directory",
     "/help": "Show help",
@@ -120,6 +125,8 @@ async def _interactive_session(project_path: Path, verbose: bool):
     _print_banner()
 
     setup_logging(verbose)
+
+    # Onboarding already ran synchronously before asyncio.start
     orchestrator = CodeFlowOrchestrator(project_root=project_path)
 
     # Set up prompt_toolkit session with autocomplete
@@ -197,6 +204,113 @@ async def _interactive_session(project_path: Path, verbose: bool):
                         console.print(f"[green]✓[/] Completed: {completed}")
                         if failed > 0:
                             console.print(f"[red]✗[/] Failed: {failed}")
+
+                elif cmd == "setup":
+                    console.print(Panel.fit("🔑 LLM Provider Setup", style="bold cyan"))
+                    from .config.global_config import get_global_config
+                    from .onboarding import PROVIDERS, _test_api_key, AVAILABLE_MODELS
+
+                    gcfg = get_global_config()
+                    if gcfg.is_configured:
+                        console.print(f"Current provider: [cyan]{gcfg.default_provider}[/]")
+                        for p in gcfg.list_configured_providers():
+                            key_preview = f"{gcfg.get_api_key(p)[:8]}****"
+                            console.print(f"  • {p}: {key_preview}")
+                        console.print()
+
+                    # Show provider list
+                    console.print("[bold]Available providers:[/]")
+                    for i, p in enumerate(PROVIDERS, 1):
+                        free_tag = " [green](free)[/]" if p["free"] else ""
+                        console.print(f"  [bold cyan]{i}[/]. {p['name']}{free_tag}")
+                    console.print()
+
+                    # Use session.prompt_async() for REPL-compatible input
+                    choice = await session.prompt_async("Select provider [1]: ")
+                    choice = (choice or "1").strip()
+                    if choice.isdigit():
+                        idx = int(choice) - 1
+                        provider = PROVIDERS[idx] if 0 <= idx < len(PROVIDERS) else None
+                    else:
+                        provider = next((p for p in PROVIDERS if choice.lower() in p["id"]), None)
+
+                    if not provider:
+                        console.print("[red]Invalid selection.[/]")
+                    elif provider["id"] == "ollama":
+                        gcfg.set_provider("ollama", "", model="llama3")
+                        console.print("[green]✓[/] Ollama configured (no key needed)")
+                        initialized = False
+                        orchestrator._initialized = False
+                    else:
+                        api_key = await session.prompt_async(f"Enter {provider['name']} API key: ")
+                        api_key = (api_key or "").strip()
+                        if not api_key:
+                            console.print("[red]No key provided.[/]")
+                        else:
+                            models = AVAILABLE_MODELS.get(provider["id"], [])
+                            model = models[0] if models else provider.get("default_model", "")
+                            console.print(f"[dim]Testing connection...[/]")
+                            try:
+                                success, message = _test_api_key(provider, api_key, model)
+                                if success:
+                                    gcfg.set_provider(provider["id"], api_key, model=model)
+                                    console.print(f"[green]✓ {message}[/]")
+                                    console.print(f"[dim]Saved to {gcfg.config_file}[/]")
+                                    initialized = False
+                                    orchestrator._initialized = False
+                                else:
+                                    console.print(f"[red]✗ {message}[/]")
+                            except Exception as e:
+                                console.print(f"[red]✗ Test failed: {e}[/]")
+
+                elif cmd == "model":
+                    console.print(Panel.fit("🤖 Model Selection", style="bold cyan"))
+                    from .config.global_config import get_global_config
+                    from .onboarding import AVAILABLE_MODELS
+
+                    gcfg = get_global_config()
+                    if not gcfg.is_configured:
+                        console.print("[yellow]No provider configured. Run /setup first.[/]")
+                    else:
+                        provider = gcfg.default_provider
+                        current_model = gcfg.get_provider_model(provider)
+                        console.print(f"Current provider: [bold]{provider}[/] — model: [bold cyan]{current_model}[/]\n")
+
+                        models = AVAILABLE_MODELS.get(provider, [])
+                        if models:
+                            console.print("[bold]Available models:[/]")
+                            for i, m in enumerate(models, 1):
+                                tag = " [green](current)[/]" if m == current_model else ""
+                                console.print(f"  [bold cyan]{i}[/]. {m}{tag}")
+                            console.print(f"  [dim]{len(models) + 1}[/]. Enter custom model name")
+                            console.print()
+
+                            choice = await session.prompt_async(f"Select a model [{current_model}]: ")
+                            choice = (choice or "1").strip()
+
+                            if choice.isdigit():
+                                idx = int(choice) - 1
+                                if 0 <= idx < len(models):
+                                    new_model = models[idx]
+                                elif idx == len(models):
+                                    new_model = await session.prompt_async("Enter model name: ")
+                                else:
+                                    console.print("[red]Invalid selection.[/]")
+                                    new_model = None
+                            else:
+                                new_model = choice.strip()
+
+                            if new_model and new_model.strip():
+                                gcfg.set_provider(provider, gcfg.get_api_key(provider), model=new_model)
+                                console.print(f"\n[green]✓[/] Model changed to: [bold]{new_model}[/]")
+                                # Re-initialize orchestrator
+                                initialized = False
+                                orchestrator._initialized = False
+                        else:
+                            new_model = await session.prompt_async(f"Enter model name for {provider}: ")
+                            if new_model and new_model.strip():
+                                gcfg.set_provider(provider, gcfg.get_api_key(provider), model=new_model)
+                                console.print(f"\n[green]✓[/] Model changed to: [bold]{new_model}[/]")
 
                 elif cmd == "analyze":
                     console.print(Panel.fit("🔍 Analyzing Codebase", style="bold blue"))
@@ -581,12 +695,108 @@ def version():
     console.print("[dim]Autonomous Development Workflow Orchestrator[/]")
 
 
+def _run_pre_repl_onboarding() -> None:
+    """
+    Run onboarding synchronously BEFORE the async REPL starts.
+    input() and getpass() are blocking and incompatible with asyncio.run().
+    """
+    try:
+        from .config.global_config import get_global_config
+        gcfg = get_global_config()
+        if gcfg.is_configured:
+            return  # Already configured, skip
+    except Exception:
+        return  # Can't check config, skip
+
+    # Run onboarding synchronously
+    console.print("[yellow]No LLM provider configured. Let's set that up.[/]\n")
+
+    try:
+        import getpass
+        from .onboarding import (
+            _show_welcome, _show_providers_table, _select_model,
+            _test_api_key, AVAILABLE_MODELS, PROVIDERS,
+        )
+        from .config.global_config import get_global_config
+
+        gcfg = get_global_config()
+        _show_welcome()
+
+        while True:
+            _show_providers_table()
+            choice = input("Select a provider (number or name) [1]: ").strip() or "1"
+
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(PROVIDERS):
+                    provider = PROVIDERS[idx]
+                else:
+                    console.print("[red]Invalid number. Try again.[/]\n")
+                    continue
+            else:
+                found = None
+                for p in PROVIDERS:
+                    if choice.lower() in p["id"] or choice.lower() in p["name"].lower():
+                        found = p
+                        break
+                if found:
+                    provider = found
+                else:
+                    console.print(f"[red]Unknown provider '{choice}'. Try again.[/]\n")
+                    continue
+
+            if provider["id"] == "ollama":
+                api_key = ""
+                console.print("[dim]Ollama runs locally — no API key needed.[/]")
+            else:
+                console.print(f"\n[bold]Get your API key at: {provider['key_url']}[/bold]")
+                api_key = getpass.getpass(f"Enter your {provider['name']} API key: ").strip()
+
+            if not api_key and provider["id"] != "ollama":
+                console.print("[red]No key provided. Try again.[/]\n")
+                continue
+
+            model = _select_model(provider["id"])
+            console.print(f"\n[dim]Testing connection to {provider['name']}...[/]")
+            success, message = _test_api_key(provider, api_key, model)
+
+            if success:
+                console.print(f"\n[green]✓ Connection successful — {message}[/]\n")
+                gcfg.set_provider(provider["id"], api_key, model=model)
+                console.print(f"[dim]Credentials saved to {gcfg.config_file}[/]\n")
+
+                providers = gcfg.list_configured_providers()
+                default = gcfg.get_default_provider()
+                console.print(Panel.fit(
+                    f"[bold green]✓ Setup Complete![/]\n\n"
+                    f"Configured: [cyan]{', '.join(providers)}[/]\n"
+                    f"Default: [bold]{default}[/]\n"
+                    f"Model: [bold]{model}[/]\n"
+                    f"You're ready to go!",
+                    border_style="green",
+                ))
+                console.print()
+                break
+            else:
+                console.print(f"\n[red]✗ Connection failed: {message}[/]\n")
+                retry = input("Try again? [Y/n]: ").strip().lower()
+                if retry not in ("", "y", "yes"):
+                    console.print("[yellow]Continuing without API key. Use /setup to configure later.[/]\n")
+                    break
+
+    except (KeyboardInterrupt, EOFError):
+        console.print("\n[yellow]Setup cancelled.[/]\n")
+    except Exception as e:
+        console.print(f"[dim]Onboarding skipped: {e}[/]\n", markup=False)
+
+
 @app.command(name="interactive")
 def interactive_cmd(
-    project_path: Path = typer.Argument(default=Path("."), help="Path to project"),
+    project_path: Path = typer.Argument(default=".", help="Path to project"),
     verbose: bool = typer.Option(False, "--verbose", "-v"),
 ):
     """Launch interactive REPL mode (default when no command given)."""
+    _run_pre_repl_onboarding()
     asyncio.run(_interactive_session(project_path, verbose))
 
 
@@ -611,6 +821,9 @@ def help_cmd():
 
 def main():
     """Entry point for CLI."""
+    # Run onboarding BEFORE asyncio (input()/getpass block inside async)
+    _run_pre_repl_onboarding()
+
     # If no arguments, launch interactive mode
     if len(sys.argv) == 1:
         try:

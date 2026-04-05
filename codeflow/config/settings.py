@@ -227,7 +227,13 @@ class CodeFlowConfig(BaseSettings):
 
 def get_config(config_file: Optional[Path] = None) -> CodeFlowConfig:
     """
-    Load configuration from environment and optional YAML file.
+    Load configuration from environment, global config, or optional YAML file.
+
+    Priority chain:
+    1. Project .env file (already loaded via dotenv at module import)
+    2. Global config (~/.codeflow/config.json)
+    3. YAML config file (if provided)
+    4. Default values
 
     Args:
         config_file: Optional path to YAML configuration file
@@ -236,7 +242,26 @@ def get_config(config_file: Optional[Path] = None) -> CodeFlowConfig:
         CodeFlowConfig instance
     """
     import logging
+    import os
     _logger = logging.getLogger(__name__)
+
+    # Check if any LLM provider API key is set in environment
+    has_env_key = any(os.environ.get(k) for k in (
+        "GROQ_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+        "GOOGLE_API_KEY",
+    ))
+
+    # If no env key, try global config
+    if not has_env_key:
+        try:
+            from .global_config import get_global_config
+            gcfg = get_global_config()
+            if gcfg.is_configured:
+                # Apply global config to environment so downstream works transparently
+                gcfg.apply_to_environment()
+                _logger.debug("Applied global config to environment")
+        except Exception as e:
+            _logger.debug(f"No global config available: {e}")
 
     if config_file and config_file.exists():
         try:
