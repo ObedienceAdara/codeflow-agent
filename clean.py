@@ -14,3 +14,4 @@ for p in root.rglob("__pycache__"):
         print(f"  deleted: {p}")
 
 print(f"[clean] Removed {deleted} __pycache__ folder(s).")
+ 
