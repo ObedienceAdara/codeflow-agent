@@ -204,5 +204,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Uses [Tree-sitter](https://tree-sitter.github.io/) for code parsing
 - Integrates with [Docker](https://www.docker.com/) for safe execution
 - Powered by state-of-the-art LLMs from Anthropic, OpenAI, and others
+<!-- end -->
 
 

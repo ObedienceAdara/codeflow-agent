@@ -1,7 +1,13 @@
-```
 # Environment
 .env
 .env.local
 .env.*
 __pycache__
-```
+
+# Scripts
+fix_commits.ps1
+
+# Local docs (not part of distribution)
+CLI_DESIGN.md
+ROADMAP.md
+PROJECT_OVERVIEW.md
