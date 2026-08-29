@@ -4,20 +4,20 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-## 🚀 Overview
+## Overview
 
 **CodeFlow Agent** is a multi-agent AI system that orchestrates entire development workflows autonomously. Unlike traditional AI coding assistants that wait for prompts, CodeFlow proactively analyzes, plans, implements, tests, and deploys code changes across your entire software development lifecycle.
 
 ### Key Capabilities
 
-- **🧠 Multi-Agent Collaboration**: Specialized agents (Architect, Developer, QA, DevOps, Reviewer, Refactor) working together
-- **📊 Deep Codebase Understanding**: Graph-based knowledge representation of code relationships
-- **⚡ Proactive Automation**: Auto-detects tech debt, suggests refactors, implements fixes
-- **🔒 Safe Execution**: Docker-sandboxed code execution and testing
-- **🔄 Full SDLC Coverage**: From requirements analysis to production deployment
-- **📚 Continuous Learning**: Adapts to your codebase patterns and team preferences
+- ** Multi-Agent Collaboration**: Specialized agents (Architect, Developer, QA, DevOps, Reviewer, Refactor) working together
+- ** Deep Codebase Understanding**: Graph-based knowledge representation of code relationships
+- ** Proactive Automation**: Auto-detects tech debt, suggests refactors, implements fixes
+- ** Safe Execution**: Docker-sandboxed code execution and testing
+- ** Full SDLC Coverage**: From requirements analysis to production deployment
+- ** Continuous Learning**: Adapts to your codebase patterns and team preferences
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid 
 graph TB
@@ -60,7 +60,7 @@ graph TB
     KG --- T5
 ```
 
-## 📦 Installation
+## Installation
 
 ### Prerequisites
 
@@ -94,7 +94,7 @@ python -m codeflow init
 python -m codeflow start
 ```
 
-## 🎯 Usage Examples
+## Usage Examples
 
 ### Analyze a Codebase
 
@@ -120,7 +120,7 @@ codeflow pr create --feature "Add user authentication"
 codeflow monitor --watch
 ```
 
-## 🤖 Agent Types
+## Agent Types
 
 | Agent | Responsibility |
 |-------|---------------|
@@ -133,7 +133,7 @@ codeflow monitor --watch
 | **Planner** | Task breakdown, prioritization, workflow orchestration |
 | **Monitor** | Health checks, incident detection, performance monitoring |
 
-## 🔧 Configuration
+## Configuration
 
 Create a `.codeflow/config.yaml` in your project:
 
@@ -165,7 +165,7 @@ git:
   require_review: true
 ```
 
-## 📚 Documentation
+## Documentation
 
 - **[Complete Usage Guide](codeflow/docs/USAGE.md)** - Comprehensive CLI reference, workflows, and troubleshooting
 - [Getting Started Guide](docs/getting-started.md)
@@ -174,7 +174,7 @@ git:
 - [API Reference](docs/api.md)
 - [Best Practices](docs/best-practices.md)
 
-## 🔐 Security
+## Security
 
 CodeFlow operates with security-first principles:
 
@@ -184,7 +184,7 @@ CodeFlow operates with security-first principles:
 - Audit logging for all agent actions
 - Configurable permission levels
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
@@ -194,17 +194,15 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - Built with [LangGraph](https://github.com/langchain-ai/langgraph) for agent orchestration
 - Uses [Tree-sitter](https://tree-sitter.github.io/) for code parsing
 - Integrates with [Docker](https://www.docker.com/) for safe execution
 - Powered by state-of-the-art LLMs from Anthropic, OpenAI, and others
 
----
 
-**Made with ❤️ by the CodeFlow Team**
