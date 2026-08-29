@@ -3,6 +3,9 @@
 .env.local
 .env.*
 __pycache__
+   
+codeflow.egg-info/
+.qwen/
 
 # Scripts
 fix_commits.ps1
